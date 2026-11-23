@@ -3,7 +3,10 @@ from dataclasses import asdict, dataclass
 from fractions import Fraction
 
 from measure.intervals import BoundaryInterval
-from measure.provenance import AssessmentProvenance, EvidenceSource, SegmentProvenance
+from measure.provenance import (
+    AssessmentProvenance, EvidenceSource, SegmentProvenance,
+    WindowAssessmentProvenance, WindowSegmentProvenance,
+)
 from receive.source import SourceIdentity
 
 
@@ -14,7 +17,7 @@ class FinalSnapshot:
     segments: tuple[BoundaryInterval, ...]
     total_seconds: Fraction
     longest_seconds: Fraction
-    provenance: AssessmentProvenance
+    provenance: AssessmentProvenance | WindowAssessmentProvenance
     dispatch_seconds: Fraction
 
 
@@ -44,27 +47,66 @@ def _decode_source(value: dict) -> EvidenceSource:
     return EvidenceSource(value['receipt_id'], SourceIdentity(**value['source']))
 
 
+def _encode_entry(entry: tuple[int, tuple[str, ...]]) -> list:
+    receipt_id, pats = entry
+    return [receipt_id, list(pats)]
+
+
+def _decode_entry(value: list) -> tuple[int, tuple[str, ...]]:
+    receipt_id, pats = value
+    return receipt_id, tuple(pats)
+
+
 def encode_snapshot(snapshot: FinalSnapshot) -> bytes:
+    provenance = snapshot.provenance
+    if isinstance(provenance, WindowAssessmentProvenance):
+        provenance_value = {
+            'kind': 'window',
+            'left': [asdict(source) for source in provenance.left],
+            'right': [asdict(source) for source in provenance.right],
+            'segments': [
+                {'left': [_encode_entry(entry) for entry in segment.left],
+                 'right': [_encode_entry(entry) for entry in segment.right]}
+                for segment in provenance.segments
+            ],
+        }
+    else:
+        provenance_value = asdict(provenance)
     value = {
         'window': _encode_interval(snapshot.window),
         'thresholds': [str(threshold) for threshold in snapshot.thresholds],
         'segments': [_encode_interval(interval) for interval in snapshot.segments],
         'total_seconds': str(snapshot.total_seconds),
         'longest_seconds': str(snapshot.longest_seconds),
-        'provenance': asdict(snapshot.provenance),
+        'provenance': provenance_value,
         'dispatch_seconds': str(snapshot.dispatch_seconds),
     }
     return json.dumps(value, sort_keys=True, separators=(',', ':')).encode('utf-8')
 
 
+def _decode_provenance(value: dict) -> AssessmentProvenance | WindowAssessmentProvenance:
+    if value.get('kind') == 'window':
+        return WindowAssessmentProvenance(
+            tuple(_decode_source(source) for source in value['left']),
+            tuple(_decode_source(source) for source in value['right']),
+            tuple(
+                WindowSegmentProvenance(
+                    tuple(_decode_entry(entry) for entry in segment['left']),
+                    tuple(_decode_entry(entry) for entry in segment['right']),
+                )
+                for segment in value['segments']
+            ),
+        )
+    return AssessmentProvenance(
+        _decode_source(value['left']), _decode_source(value['right']),
+        tuple(SegmentProvenance(tuple(segment['left_pats']), tuple(segment['right_pats']))
+              for segment in value['segments']),
+    )
+
+
 def decode_snapshot(payload: bytes) -> FinalSnapshot:
     value = json.loads(payload)
-    evidence = value['provenance']
-    provenance = AssessmentProvenance(
-        _decode_source(evidence['left']), _decode_source(evidence['right']),
-        tuple(SegmentProvenance(tuple(segment['left_pats']), tuple(segment['right_pats']))
-              for segment in evidence['segments']),
-    )
+    provenance = _decode_provenance(value['provenance'])
     left, right = value['thresholds']
     return FinalSnapshot(
         _decode_interval(value['window']), (Fraction(left), Fraction(right)),

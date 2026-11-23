@@ -30,3 +30,17 @@ def build_provenance(pair: ReceiptPair, dwell: DwellResult) -> AssessmentProvena
         EvidenceSource(pair.right.receipt_id, pair.right.source),
         tuple(SegmentProvenance(segment.left_pats, segment.right_pats) for segment in dwell.segments),
     )
+
+
+@dataclass(frozen=True)
+class WindowSegmentProvenance:
+    # Each side lists (receipt_id, pats) in the same order as the request group.
+    left: tuple[tuple[int, tuple[str, ...]], ...]
+    right: tuple[tuple[int, tuple[str, ...]], ...]
+
+
+@dataclass(frozen=True)
+class WindowAssessmentProvenance:
+    left: tuple[EvidenceSource, ...]
+    right: tuple[EvidenceSource, ...]
+    segments: tuple[WindowSegmentProvenance, ...]

@@ -21,6 +21,16 @@
 8. 勘误版另行冻结、发行、实收和签报。可以继续选旧实收号，后到勘误件不会改变旧号的出处或核定结果。
 9. `report.history.retrieve(reports, report_id)` 按原号复领定稿、首执及快照中的派工依据。关闭并重开正式库后仍可复领。
 
+## 分窗离线合签
+
+站端可按确切修订发行只声明闭窗的分窗件，夜班在站库关闭后凭左右实收号组合签。完整契约见 WINDOWS.md。
+
+10. `prepare.issuance.issue_window(revisions, issues, revision_id, window)` 返回 `IssuedItem`，来件固定来源修订、声明闭窗和窗内有效时温依据；窗外原拍仍可作为窗内插值出处。`reissue` 同样适用于分窗件，按原号返回逐字节相同来件。
+11. 分窗件继续走 `receive.intake.intake`，点收额外核验闭窗声明；分窗件与整件在来件中可区分，旧 `measure.requests.sign` 收到分窗件抛 `ValueError`，分窗件不得按整件核定。
+12. `measure.requests.WindowAssessmentRequest(left_receipt_ids, right_receipt_ids, window, left_threshold, right_threshold)` 与 `sign_windows(receipts, reports, request)` 接收两组有序、非空且互不重复的分窗实收号：组内同测头，两组为同试验不同测头，同头可跨修订。
+13. 窗内无有效依据的时刻为缺测，窗外无声明；同头各件在核定窗内的声明交集必须处处同温或同为缺测，单点冲突也拒签。只计两头同时有效且各自严格超温的时刻，空结果和零宽核定窗签出两个零。
+14. 分窗快照的 `provenance.left`、`provenance.right` 为按请求顺序排列的 `EvidenceSource` 元组，`provenance.segments` 逐段给出各头实际支持来件及原拍；裁窗点不生成拍号，原拍恰在证据时刻时只用该拍。
+
 ## 计量口径
 
 秒数、温度和门槛接受 `int`、`fractions.Fraction` 或 `Fraction` 可读的有理数字符串。使用精确有理数进行插值、求交及持久化。温度为零的拍有效。只有相邻且均有效的拍之间允许线性插值。首末证据之外及显式缺测为无效，孤立有效拍只证明该时刻。
